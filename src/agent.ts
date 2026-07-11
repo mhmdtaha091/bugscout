@@ -2,25 +2,68 @@
  * Agentic explorer — LLM-driven page exploration.
  * Uses the accessibility tree + screenshots to decide what to interact with next.
  * v1 implementation per WEBQA_AGENT_PLAN.md.
+ *
+ * Provider-agnostic: supports Anthropic, OpenAI, and any OpenAI-compatible
+ * endpoint (DeepSeek, Ollama, Groq, Gemini, etc.) — set via AGENT_PROVIDER
+ * env or `provider` in AgentConfig.
  */
 
 import type { Page, BrowserContext } from "playwright";
 import type { PageNode, PageElement, UserFlow, FlowStep, LLMCall } from "./types.js";
 
+export type LLMProvider = "anthropic" | "openai" | "openai-compatible" | "gemini";
+
 export interface AgentConfig {
-  /** Claude API key */
-  apiKey: string;
-  /** Model to use for decision-making */
-  model: string;
+  /** LLM provider */
+  provider?: LLMProvider;
+  /** API key (falls back to env: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY) */
+  apiKey?: string;
+  /** Model to use */
+  model?: string;
   /** Maximum exploration steps per page */
-  maxSteps: number;
-  /** Base URL for Claude API */
+  maxSteps?: number;
+  /** Base URL (for openai-compatible providers like DeepSeek, Ollama) */
   baseUrl?: string;
 }
 
-const DEFAULT_CONFIG: Partial<AgentConfig> = {
-  model: "claude-sonnet-5",
+const DEFAULT_CONFIG: Required<Omit<AgentConfig, "apiKey" | "baseUrl">> & {
+  apiKey: string;
+  baseUrl: string;
+} = {
+  provider: (process.env["AGENT_PROVIDER"] as LLMProvider) || "openai-compatible",
+  apiKey: "",
+  model: process.env["AGENT_MODEL"] || "deepseek-chat",
   maxSteps: 20,
+  baseUrl: process.env["AGENT_BASE_URL"] || "https://api.deepseek.com/v1",
+};
+
+// ─── Provider presets (cost-optimized) ───
+
+const PROVIDER_PRESETS: Record<
+  string,
+  { baseUrl: string; model: string; apiKeyEnv: string }
+> = {
+  anthropic: {
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-haiku-4-5-20251001",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+  },
+  openai: {
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+    apiKeyEnv: "OPENAI_API_KEY",
+  },
+  "openai-compatible": {
+    baseUrl: process.env["AGENT_BASE_URL"] || "https://api.deepseek.com/v1",
+    model: process.env["AGENT_MODEL"] || "deepseek-chat",
+    apiKeyEnv: "OPENAI_API_KEY",
+  },
+  gemini: {
+    baseUrl:
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    model: process.env["AGENT_MODEL"] || "gemini-2.0-flash",
+    apiKeyEnv: "GEMINI_API_KEY",
+  },
 };
 
 interface AgentAction {
@@ -40,7 +83,7 @@ export async function explorePageAgentically(
   context: BrowserContext,
   config: AgentConfig
 ): Promise<{ flows: UserFlow[]; calls: LLMCall[] }> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  const cfg = resolveConfig(config);
   const calls: LLMCall[] = [];
   const flows: UserFlow[] = [];
   const steps: FlowStep[] = [];
@@ -55,11 +98,11 @@ export async function explorePageAgentically(
   });
 
   for (let i = 0; i < cfg.maxSteps; i++) {
-    // Get the accessibility tree snapshot
-    const axTree = await (page as any).accessibility?.snapshot({ interestingOnly: true });
+    const axTree = await (page as any).accessibility?.snapshot({
+      interestingOnly: true,
+    });
     const axSummary = summarizeAxTree(axTree, 3);
 
-    // Hash the state to detect loops
     const stateHash = hashState(currentUrl, axSummary);
     if (visitedStates.has(stateHash)) {
       steps.push({
@@ -71,8 +114,13 @@ export async function explorePageAgentically(
     }
     visitedStates.add(stateHash);
 
-    // Ask the LLM what to do next
-    const prompt = buildExplorerPrompt(currentUrl, axSummary, steps, i, cfg.maxSteps);
+    const prompt = buildExplorerPrompt(
+      currentUrl,
+      axSummary,
+      steps,
+      i,
+      cfg.maxSteps
+    );
     const llmResponse = await callLLM(prompt, cfg);
     calls.push(llmResponse);
 
@@ -90,7 +138,6 @@ export async function explorePageAgentically(
       break;
     }
 
-    // Execute the action
     try {
       const step = await executeAction(page, action, currentUrl);
       steps.push(step);
@@ -106,7 +153,9 @@ export async function explorePageAgentically(
 
   if (steps.length > 1) {
     flows.push({
-      name: `Agent-discovered flow on ${new URL(currentUrl).pathname || "/"}`,
+      name: `Agent-discovered flow on ${
+        new URL(currentUrl).pathname || "/"
+      }`,
       steps: [...steps],
     });
   }
@@ -116,13 +165,12 @@ export async function explorePageAgentically(
 
 /**
  * Generate Playwright test specs from agent-discovered flows.
- * Uses Claude to emit deterministic Playwright code.
  */
 export async function generateTestsFromFlows(
   flows: UserFlow[],
   config: AgentConfig
 ): Promise<{ flows: UserFlow[]; calls: LLMCall[] }> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  const cfg = resolveConfig(config);
   const calls: LLMCall[] = [];
   const updatedFlows: UserFlow[] = [];
 
@@ -141,13 +189,44 @@ export async function generateTestsFromFlows(
   return { flows: updatedFlows, calls };
 }
 
-// ─── LLM helpers ───
+// ─── Config resolution ───
 
-async function callLLM(prompt: string, config: AgentConfig): Promise<LLMCall> {
+function resolveConfig(config: AgentConfig): Required<AgentConfig> {
+  const provider = config.provider || DEFAULT_CONFIG.provider;
+  const preset = PROVIDER_PRESETS[provider] || PROVIDER_PRESETS["openai-compatible"];
+  return {
+    provider: provider as LLMProvider,
+    apiKey:
+      config.apiKey ||
+      process.env[preset.apiKeyEnv] ||
+      DEFAULT_CONFIG.apiKey,
+    model: config.model || preset.model,
+    maxSteps: config.maxSteps ?? DEFAULT_CONFIG.maxSteps,
+    baseUrl: config.baseUrl || preset.baseUrl,
+  };
+}
+
+// ─── LLM helpers (provider-agnostic) ───
+
+async function callLLM(
+  prompt: string,
+  config: Required<AgentConfig>
+): Promise<LLMCall> {
   const startTime = Date.now();
-  const baseUrl = config.baseUrl || "https://api.anthropic.com/v1";
 
-  const response = await fetch(`${baseUrl}/messages`, {
+  if (config.provider === "anthropic") {
+    return callAnthropic(prompt, config, startTime);
+  }
+  // openai, openai-compatible, gemini all use the chat/completions format
+  return callOpenAICompatible(prompt, config, startTime);
+}
+
+async function callAnthropic(
+  prompt: string,
+  config: Required<AgentConfig>,
+  startTime: number
+): Promise<LLMCall> {
+  const response = await fetch(`${config.baseUrl}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -163,7 +242,9 @@ async function callLLM(prompt: string, config: AgentConfig): Promise<LLMCall> {
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Claude API error ${response.status}: ${errText}`);
+    throw new Error(
+      `LLM API error ${response.status} (${config.provider}): ${errText.slice(0, 300)}`
+    );
   }
 
   const data = (await response.json()) as {
@@ -174,7 +255,7 @@ async function callLLM(prompt: string, config: AgentConfig): Promise<LLMCall> {
   const latencyMs = Date.now() - startTime;
   const tokensIn = data.usage?.input_tokens || 0;
   const tokensOut = data.usage?.output_tokens || 0;
-  const cost = estimateCost(config.model, tokensIn, tokensOut);
+  const cost = estimateCost(config.provider, config.model, tokensIn, tokensOut);
 
   return {
     model: config.model,
@@ -187,15 +268,107 @@ async function callLLM(prompt: string, config: AgentConfig): Promise<LLMCall> {
   };
 }
 
-function estimateCost(model: string, tokensIn: number, tokensOut: number): number {
-  // Claude API pricing as of July 2026
+async function callOpenAICompatible(
+  prompt: string,
+  config: Required<AgentConfig>,
+  startTime: number
+): Promise<LLMCall> {
+  let url: string;
+  let headers: Record<string, string>;
+
+  if (config.provider === "gemini") {
+    // Gemini has its own OpenAI-compatible endpoint
+    url = `${config.baseUrl}`;
+    headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    };
+  } else {
+    url = `${config.baseUrl}/chat/completions`;
+    headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    };
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 2048,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an autonomous web QA agent. Output ONLY the requested JSON — no markdown, no explanation.",
+        },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(
+      `LLM API error ${response.status} (${config.provider}): ${errText.slice(0, 300)}`
+    );
+  }
+
+  const data = (await response.json()) as {
+    choices: Array<{ message: { content: string } }>;
+    usage: { prompt_tokens: number; completion_tokens: number };
+  };
+
+  const latencyMs = Date.now() - startTime;
+  const tokensIn = data.usage?.prompt_tokens || 0;
+  const tokensOut = data.usage?.completion_tokens || 0;
+  const cost = estimateCost(config.provider, config.model, tokensIn, tokensOut);
+
+  return {
+    model: config.model,
+    prompt: prompt.slice(0, 500),
+    response: data.choices[0]?.message?.content || "",
+    tokensIn,
+    tokensOut,
+    cost,
+    latencyMs,
+  };
+}
+
+function estimateCost(
+  provider: string,
+  model: string,
+  tokensIn: number,
+  tokensOut: number
+): number {
+  // Pricing per 1M tokens (input, output). Updated July 2026.
   const rates: Record<string, { in: number; out: number }> = {
-    "claude-haiku-4-5-20251001": { in: 0.80, out: 4.0 },
+    // Anthropic
+    "claude-haiku-4-5-20251001": { in: 0.8, out: 4.0 },
+    "claude-haiku-4-5": { in: 0.8, out: 4.0 },
     "claude-sonnet-5": { in: 3.0, out: 15.0 },
     "claude-opus-4-8": { in: 15.0, out: 75.0 },
     "claude-fable-5": { in: 25.0, out: 100.0 },
+    // OpenAI
+    "gpt-4o-mini": { in: 0.15, out: 0.6 },
+    "gpt-4o": { in: 2.5, out: 10.0 },
+    // DeepSeek
+    "deepseek-chat": { in: 0.14, out: 0.28 },
+    "deepseek-reasoner": { in: 0.55, out: 2.19 },
+    // Gemini (free tier available)
+    "gemini-2.0-flash": { in: 0.0, out: 0.0 },
+    "gemini-2.0-flash-lite": { in: 0.0, out: 0.0 },
+    // Ollama (local — free)
+    "llama3.2": { in: 0.0, out: 0.0 },
   };
-  const rate = rates[model] || { in: 3.0, out: 15.0 };
+
+  const rate = rates[model];
+  if (!rate) {
+    // Unknown model — assume cheapest tier
+    return (tokensIn * 0.14 + tokensOut * 0.28) / 1_000_000;
+  }
   return (tokensIn * rate.in + tokensOut * rate.out) / 1_000_000;
 }
 
@@ -236,7 +409,10 @@ Respond with ONLY the JSON object, no markdown.`;
 
 function buildTestGenPrompt(flow: UserFlow): string {
   const stepsDesc = flow.steps
-    .map((s, i) => `${i + 1}. ${s.action}: ${s.description} (${s.target || ""})`)
+    .map(
+      (s, i) =>
+        `${i + 1}. ${s.action}: ${s.description} (${s.target || ""})`
+    )
     .join("\n");
 
   return `You are a Playwright test generator. Given a user flow, generate a deterministic, production-quality Playwright test in TypeScript.
@@ -262,7 +438,6 @@ Output ONLY the TypeScript code block, no explanation.`;
 
 function parseAction(response: string): AgentAction | null {
   try {
-    // Try to extract JSON from the response
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
     const parsed = JSON.parse(jsonMatch[0]);
@@ -297,7 +472,8 @@ async function executeAction(
         target: selector,
         value: action.value || "test",
         pageUrl: currentUrl,
-        description: action.reasoning || `Fill ${selector} with "${action.value}"`,
+        description:
+          action.reasoning || `Fill ${selector} with "${action.value}"`,
       };
     }
     case "navigate": {
@@ -359,7 +535,10 @@ function hashState(url: string, axSummary: string): string {
 }
 
 function extractCodeBlock(text: string, lang: string): string | null {
-  const re = new RegExp(`\`\`\`${lang}\\n?([\\s\\S]*?)\`\`\``, "i");
+  const re = new RegExp(
+    `\`\`\`${lang}\\n?([\\s\\S]*?)\`\`\``,
+    "i"
+  );
   const match = text.match(re);
   return match ? match[1].trim() : null;
 }
