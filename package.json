@@ -1,0 +1,41 @@
+{
+  "name": "bugscout",
+  "version": "0.1.0",
+  "description": "Autonomous web QA agent — point it at a URL, it finds bugs and generates Playwright regression suites",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "bugscout": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "test": "playwright test",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["qa", "testing", "playwright", "agent", "mcp", "web", "automation", "accessibility"],
+  "author": "Muhammad Taha Khan <mhmdtaha091@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mhmdtaha091/bugscout"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/test": "^1.61.1",
+    "axe-core": "^4.12.1",
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "commander": "^15.0.0",
+    "marked": "^18.0.5",
+    "ora": "^9.4.1",
+    "playwright": "^1.61.1",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.0"
+  }
+}
