@@ -4,9 +4,11 @@
 
 BugScout is an AI-powered web QA agent that autonomously explores any web application, maps its user flows, detects bugs (console errors, broken links, a11y violations, layout issues, dead buttons), and generates **production-ready Playwright regression suites** — all from a single command.
 
+<!-- TODO: demo GIF — record a 20–30s scan of a real site (terminal + report) and embed here -->
+
 ## Why BugScout?
 
-- **Zero setup** — `npx bugscout <url>` and you get a report with screenshots
+- **One command** — point it at a URL and get a markdown report with screenshots
 - **Finds real bugs** — console errors, 4xx/5xx, broken links, a11y violations, dead buttons, layout overflow
 - **Generates Playwright tests** — deterministic, self-validating specs from discovered user flows
 - **Plays well with CI** — GitHub Action for PR previews, regression diffing
@@ -16,19 +18,24 @@ BugScout is an AI-powered web QA agent that autonomously explores any web applic
 ## Quick Start
 
 ```bash
-# Install
-npm install -g bugscout
+git clone https://github.com/mhmdtaha091/bugscout.git
+cd bugscout
+npm install
+npx playwright install chromium
 
-# Or run directly
-npx bugscout https://example.com
+# Scan a site
+npm run dev -- https://example.com
 
 # With options
-npx bugscout https://example.com \
+npm run dev -- https://example.com \
   --output ./qa-results \
   --max-pages 30 \
   --agentic \
   --generate-tests
 ```
+
+> Not on npm yet — the `bugscout` name on the registry belongs to an unrelated
+> package, so this will ship under a scoped name. Until then, clone and run.
 
 ## How It Works
 
@@ -60,7 +67,11 @@ Flow map  ─── pages, interactive elements, forms, links
 | `--no-headless` | Show browser window | `true` (headless) |
 | `--timeout <s>` | Page timeout in seconds | 30 |
 | `--agentic` | LLM-driven agentic exploration (v1) | `false` |
-| `--generate-tests` | Generate Playwright specs (v1) | `false` |
+| `--generate-tests` | Generate Playwright specs (requires `--agentic`) | `false` |
+| `--provider <name>` | LLM provider: `anthropic`, `openai`, `openai-compatible`, `gemini` | `openai-compatible` |
+| `--model <name>` | LLM model | `deepseek-chat` |
+| `--base-url <url>` | API base URL for openai-compatible providers | — |
+| `--api-key <key>` | API key (or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) | env var |
 
 ## Architecture
 
@@ -122,6 +133,10 @@ BugScout has been tested against real, high-traffic production sites:
 Bugs detected include: missing accessible labels (a11y), layout overflow on
 narrow viewports, broken intra-site links, and console errors.
 
+<!-- TODO (v2 campaign): table of upstream bugs filed on OSS projects —
+     issue link · project · status (confirmed/fixed). Real, linkable issues
+     only; no numbers until they exist. -->
+
 > Run the agentic mode (`--agentic`) to enable LLM-driven exploration and
 > automatic Playwright test generation from discovered flows.
 
@@ -138,8 +153,17 @@ All numbers published are real and verifiable:
 - **TypeScript** end-to-end
 - **Playwright** for browser automation (Chromium via CDP)
 - **MCP SDK** (`@modelcontextprotocol/sdk`) for tool exposure
-- **Claude API** for agentic exploration + test generation (v1+)
+- **Multi-provider LLM layer** for agentic exploration + test generation (v1+) — Anthropic, OpenAI, Gemini, or any OpenAI-compatible endpoint (DeepSeek, Ollama)
 - **axe-core** for accessibility violation detection
+
+## Responsible Use
+
+Only scan sites you own or have explicit authorization to test. The default
+crawl is navigation-only — it stays same-origin, maps forms without submitting
+them, and clicks nothing. Agentic mode (`--agentic`) does interact with pages,
+so reserve it for targets you control. Crawling still generates real traffic;
+the public-site scans above were navigation-only crawls of publicly served
+pages.
 
 ## License
 
