@@ -66,7 +66,7 @@ const PROVIDER_PRESETS: Record<
   },
 };
 
-interface AgentAction {
+export interface AgentAction {
   action: "click" | "fill" | "navigate" | "done" | "back";
   selector?: string;
   value?: string;
@@ -337,7 +337,8 @@ async function callOpenAICompatible(
   };
 }
 
-function estimateCost(
+/** Estimate LLM call cost in USD from token counts. (Exported for unit tests.) */
+export function estimateCost(
   provider: string,
   model: string,
   tokensIn: number,
@@ -436,7 +437,8 @@ Output ONLY the TypeScript code block, no explanation.`;
 
 // ─── Action parsing and execution ───
 
-function parseAction(response: string): AgentAction | null {
+/** Parse the LLM's JSON action from a raw response. (Exported for unit tests.) */
+export function parseAction(response: string): AgentAction | null {
   try {
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
@@ -534,7 +536,8 @@ function hashState(url: string, axSummary: string): string {
   return hash.toString(36);
 }
 
-function extractCodeBlock(text: string, lang: string): string | null {
+/** Extract a fenced code block of the given language. (Exported for unit tests.) */
+export function extractCodeBlock(text: string, lang: string): string | null {
   const re = new RegExp(
     `\`\`\`${lang}\\n?([\\s\\S]*?)\`\`\``,
     "i"

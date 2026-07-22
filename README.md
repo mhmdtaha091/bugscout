@@ -1,5 +1,7 @@
 # 🐛 BugScout — Autonomous Web QA Agent
 
+[![CI](https://github.com/mhmdtaha091/bugscout/actions/workflows/ci.yml/badge.svg)](https://github.com/mhmdtaha091/bugscout/actions/workflows/ci.yml)
+
 > Point it at a URL. It finds your bugs. It writes the regression tests.
 
 BugScout is an AI-powered web QA agent that autonomously explores any web application, maps its user flows, detects bugs (console errors, broken links, a11y violations, layout issues, dead buttons), and generates **production-ready Playwright regression suites** — all from a single command.

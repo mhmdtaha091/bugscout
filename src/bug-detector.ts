@@ -43,7 +43,11 @@ export async function detectBugs(
   return deduplicate(allFindings);
 }
 
-async function checkPage(
+/**
+ * Run every detector against a single page.
+ * (Exported for unit tests — tests drive it with a stubbed BrowserContext.)
+ */
+export async function checkPage(
   pageNode: PageNode,
   context: BrowserContext,
   config: { outputDir: string; pageTimeout: number; baseUrl: string }
@@ -373,7 +377,8 @@ async function detectA11yIssues(
   return issues;
 }
 
-function idFrom(...parts: string[]): string {
+/** Stable finding ID from arbitrary string parts. (Exported for unit tests.) */
+export function idFrom(...parts: string[]): string {
   const hash = parts
     .join("|")
     .split("")
@@ -381,7 +386,8 @@ function idFrom(...parts: string[]): string {
   return `BUG-${Math.abs(hash).toString(36).slice(0, 8).toUpperCase()}`;
 }
 
-function deduplicate(findings: BugFinding[]): BugFinding[] {
+/** Deduplicate findings by title+url, keeping the first. (Exported for unit tests.) */
+export function deduplicate(findings: BugFinding[]): BugFinding[] {
   const seen = new Set<string>();
   return findings.filter((f) => {
     const key = `${f.title}|${f.url}`;

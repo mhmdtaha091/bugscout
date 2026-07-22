@@ -21,8 +21,9 @@ const DEFAULT_CONFIG: Partial<ExplorerConfig> = {
 
 /**
  * Parse and normalize a URL for same-origin comparison.
+ * (Exported for unit tests.)
  */
-function originOf(url: string): string {
+export function originOf(url: string): string {
   try {
     const u = new URL(url);
     return `${u.protocol}//${u.hostname}${u.port ? ":" + u.port : ""}`;
@@ -120,8 +121,9 @@ async function extractForms(page: Page): Promise<FormInfo[]> {
 
 /**
  * Extract all same-origin links from a page.
+ * (Exported for unit tests.)
  */
-async function extractLinks(page: Page, baseOrigin: string): Promise<string[]> {
+export async function extractLinks(page: Page, baseOrigin: string): Promise<string[]> {
   const hrefs = await page.$$eval("a[href]", (links) =>
     links.map((a) => a.getAttribute("href") || "").filter(Boolean)
   );
@@ -144,8 +146,9 @@ async function extractLinks(page: Page, baseOrigin: string): Promise<string[]> {
 /**
  * Detect simple multi-step flows from the flow map.
  * Looks for: page with form → success/redirect page.
+ * (Exported for unit tests.)
  */
-function discoverFlows(flowMap: FlowMap): UserFlow[] {
+export function discoverFlows(flowMap: FlowMap): UserFlow[] {
   const flows: UserFlow[] = [];
   const visited = new Set<string>();
 
@@ -320,8 +323,8 @@ export async function explore(
   return flowMap;
 }
 
-/** Sanitize a URL for use as a filename */
-function sanitizeFilename(url: string): string {
+/** Sanitize a URL for use as a filename. (Exported for unit tests.) */
+export function sanitizeFilename(url: string): string {
   return url
     .replace(/^https?:\/\//, "")
     .replace(/[^a-zA-Z0-9]/g, "_")
