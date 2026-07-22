@@ -12,7 +12,7 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "test": "playwright test",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit && tsc -p tsconfig.tests.json"
   },
   "keywords": ["qa", "testing", "playwright", "agent", "mcp", "web", "automation", "accessibility"],
   "author": "Muhammad Taha Khan <mhmdtaha091@gmail.com>",
